@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -92,12 +93,25 @@ func handleCall(c *call, conn net.Conn) {
 		data := fmt.Sprintf("331 User '%s' OK. Password required\n", c.args[0])
 		conn.Write([]byte(data))
 
-	case "TYPE":
-		if c.args[0] != "bin" {
+	case "LIST":
+		files, err := ioutil.ReadDir("/")
 
-		} else {
-			conn.Write([]byte("200 Mode is accepted\n"))
+		if err != nil {
+			conn.Write([]byte("550 Requested action not taken.\n"))
+			break
 		}
+
+		buf := make([]byte, 0, 4096)
+
+		for _, file := range files {
+			data := fmt.Sprintf("%s\t %d\t %v\n", file.Name(), file.Size(), file.IsDir())
+			buf = append(buf, data...)
+		}
+
+		conn.Write(buf)
+
+	case "TYPE":
+		conn.Write([]byte("200 Mode is accepted\n"))
 
 	case "PASS":
 		conn.Write([]byte("230 OK. Current restricted directory is /\n"))
@@ -109,7 +123,7 @@ func handleCall(c *call, conn net.Conn) {
 		port := 22000
 		p, k := calculatePort(port)
 
-		err := initiateFileTransfer(port)
+		err := initiateStream("file transfer", port, handleFileTransfer)
 
 		if err != nil {
 			conn.Write([]byte("425 Can't open data connection\n"))
@@ -134,29 +148,29 @@ func calculatePort(desiredPort int) (byte, byte) {
 	return byte(p), byte(k)
 }
 
-func initiateFileTransfer(port int) error {
+func initiateStream(streamName string, port int, handler func(conn net.Conn) error) error {
 	address := fmt.Sprintf("localhost:%d", port)
 	listener, err := net.Listen("tcp", address)
 
 	if err != nil {
-		fmt.Println("[file transfer] can't start a tcp stream for file transfer")
+		fmt.Printf("[%s] can't start a tcp stream\n", streamName)
 		return err
 	}
 
 	go func() {
 		defer func() {
-			fmt.Println("[file transfer] closing file transfer stream")
+			fmt.Printf("[%s] closing stream\n", streamName)
 			listener.Close()
 		}()
 
 		conn, err := listener.Accept()
 
 		if err != nil {
-			fmt.Printf("[file transfer] error while accepting a TCP connection %s\n", err)
+			fmt.Printf("[%s] error while accepting a TCP connection: %s\n", streamName, err)
 		}
 
-		if err := handleFileTransfer(conn); err != nil {
-			fmt.Printf("[file transfer] error while transferring file %s\n", err)
+		if err := handler(conn); err != nil {
+			fmt.Printf("[%s] error while streaming: %s\n", streamName, err)
 		}
 	}()
 
