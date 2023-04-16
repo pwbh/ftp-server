@@ -6,12 +6,15 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
 )
 
 const WRITE_MODE = fs.FileMode(0666)
+const MIN_PORT = 8001
+const MAX_PORT = 65535
 
 type command string
 
@@ -120,7 +123,8 @@ func handleCall(c *call, conn net.Conn) {
 		conn.Write([]byte("125 transfer starting\n"))
 
 	case "PASV":
-		port := 22000
+		port := rand.Intn(MAX_PORT-MIN_PORT) + MIN_PORT
+		fmt.Println(port)
 		p, k := calculatePort(port)
 
 		err := initiateStream("file transfer", port, handleFileTransfer)
