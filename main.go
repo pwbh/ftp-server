@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -97,7 +96,7 @@ func handleCall(c *call, conn net.Conn) {
 		conn.Write([]byte(data))
 
 	case "LIST":
-		files, err := ioutil.ReadDir("/")
+		files, err := os.ReadDir("/")
 
 		if err != nil {
 			conn.Write([]byte("550 Requested action not taken.\n"))
@@ -107,7 +106,13 @@ func handleCall(c *call, conn net.Conn) {
 		buf := make([]byte, 0, 4096)
 
 		for _, file := range files {
-			data := fmt.Sprintf("%s\t %d\t %v\n", file.Name(), file.Size(), file.IsDir())
+			info, err := file.Info()
+
+			if err != nil {
+				continue
+			}
+
+			data := fmt.Sprintf("%s\t %d\t %v\n", file.Name(), info.Size(), file.IsDir())
 			buf = append(buf, data...)
 		}
 
