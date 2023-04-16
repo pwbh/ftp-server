@@ -3,11 +3,14 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"os"
 	"strings"
 )
+
+const WRITE_MODE = fs.FileMode(0666)
 
 type command string
 
@@ -54,7 +57,7 @@ func handleConnection(conn net.Conn) {
 			break
 		}
 
-		fmt.Println(string(tmp))
+		fmt.Print(string(tmp))
 
 		call, err := parseCall(string(tmp[:n]))
 
@@ -84,15 +87,23 @@ func parseCall(cmd string) (*call, error) {
 }
 
 func handleCall(c *call, conn net.Conn) {
-	println("CMD: " + c.c)
-
 	switch c.c {
 	case "USER":
 		data := fmt.Sprintf("331 User '%s' OK. Password required\n", c.args[0])
 		conn.Write([]byte(data))
 
+	case "TYPE":
+		if c.args[0] != "bin" {
+
+		} else {
+			conn.Write([]byte("200 Mode is accepted\n"))
+		}
+
 	case "PASS":
 		conn.Write([]byte("230 OK. Current restricted directory is /\n"))
+
+	case "STOR":
+		conn.Write([]byte("125 transfer starting\n"))
 
 	case "PASV":
 		port := 22000
@@ -128,63 +139,61 @@ func initiateFileTransfer(port int) error {
 	listener, err := net.Listen("tcp", address)
 
 	if err != nil {
-		fmt.Println("can't start a tcp stream for file transfer")
+		fmt.Println("[file transfer] can't start a tcp stream for file transfer")
 		return err
 	}
 
 	go func() {
 		defer func() {
-			fmt.Println("closing file transfer stream")
+			fmt.Println("[file transfer] closing file transfer stream")
 			listener.Close()
 		}()
 
-		for {
-			conn, err := listener.Accept()
+		conn, err := listener.Accept()
 
-			if err != nil {
-				fmt.Printf("[file transfer] error while accepting a TCP connection %s", err)
-				continue
-			}
+		if err != nil {
+			fmt.Printf("[file transfer] error while accepting a TCP connection %s\n", err)
+		}
 
-			handleFileTransfer(conn)
+		if err := handleFileTransfer(conn); err != nil {
+			fmt.Printf("[file transfer] error while transferring file %s\n", err)
 		}
 	}()
 
 	return nil
 }
 
-func handleFileTransfer(conn net.Conn) {
+func handleFileTransfer(conn net.Conn) error {
 	defer conn.Close()
 
-	packet := make([]byte, 4096)
+	buf := make([]byte, 0, 4096) // file container
+	packet := make([]byte, 8192)
 
-	conn.Write([]byte("220 FTP Server ready.\n"))
-
-	fo, err := os.Create("newfile.txt")
-
-	if err != nil {
-		fmt.Println("couldn't create file")
-	}
-
-	defer fo.Close()
+	var total int
 
 	for {
 		n, err := conn.Read(packet)
 
-		if err != nil {
-			if err != io.EOF {
-				fmt.Println("read error: ", err)
-			}
-			break
+		if err != nil && err != io.EOF {
+			fmt.Println("read error: ", err)
+			return err
 		}
 
-		fmt.Println(string(packet))
+		buf = append(buf, packet[:n]...)
 
-		if err != nil {
-			fmt.Println("call parse error: ", err)
+		total += n
+
+		if n != len(packet) {
+			fmt.Println("Done receiving bytes.")
 			break
 		}
-
-		fo.Write(packet[:n])
 	}
+
+	fmt.Printf("Total bytes received: %d. Writing file.\n", total)
+
+	if err := os.WriteFile("newfile.png", buf[:total], WRITE_MODE); err != nil {
+		return err
+	}
+
+	return nil
 }
