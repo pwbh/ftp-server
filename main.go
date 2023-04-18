@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"text/tabwriter"
 )
 
 const WRITE_MODE = fs.FileMode(0666)
@@ -188,7 +190,9 @@ func handleList(conn net.Conn) error {
 		return err
 	}
 
-	buf := make([]byte, 0, 4096)
+	buf := bytes.NewBuffer(make([]byte, 0, 4096))
+
+	w := tabwriter.NewWriter(buf, 1, 1, 4, ' ', 0)
 
 	for _, file := range files {
 		info, err := file.Info()
@@ -200,10 +204,12 @@ func handleList(conn net.Conn) error {
 
 		data := fmt.Sprintf("%v\t%s\t %d\t %v\n", info.Mode(), file.Name(), info.Size(), file.IsDir())
 
-		buf = append(buf, data...)
+		w.Write([]byte(data))
 	}
 
-	conn.Write(buf)
+	w.Flush()
+
+	conn.Write(buf.Bytes())
 
 	return nil
 }
