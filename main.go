@@ -108,17 +108,19 @@ func handleCall(c *call, conn net.Conn, dataStream net.Listener, port int) {
 
 	case "LIST":
 		conn.Write([]byte("150 Opening ASCII mode data connection for file list.\n"))
-		handleDataStream(dataStream, "LIST")
+		handleDataStream(c, dataStream, "LIST")
 		conn.Write([]byte("226 Transfer complete.\n"))
 
 	case "TYPE":
-		conn.Write([]byte("200 Mode is accepted\n"))
+		conn.Write([]byte("200 Type set to I.\n"))
 
 	case "PASS":
 		conn.Write([]byte("230 OK. Current restricted directory is /\n"))
 
 	case "STOR":
-		conn.Write([]byte("125 transfer starting\n"))
+		conn.Write([]byte("125 Transfer starting\n"))
+		handleDataStream(c, dataStream, "STOR")
+		conn.Write([]byte("226 Transfer complete.\n"))
 
 	case "PASV":
 		p, k := calculatePort(port)
@@ -127,6 +129,9 @@ func handleCall(c *call, conn net.Conn, dataStream net.Listener, port int) {
 
 	case "PUT":
 		conn.Write([]byte("150 Accepted data connection\n"))
+
+	case "QUIT":
+		conn.Close()
 
 	default:
 		data := fmt.Sprintf("502 Command not implemented (%s)\n", c.c)
@@ -140,7 +145,7 @@ func calculatePort(desiredPort int) (byte, byte) {
 	return byte(p), byte(k)
 }
 
-func handleDataStream(dataStream net.Listener, streamType string) error {
+func handleDataStream(c *call, dataStream net.Listener, streamType string) error {
 	conn, err := dataStream.Accept()
 
 	if err != nil {
@@ -153,6 +158,9 @@ func handleDataStream(dataStream net.Listener, streamType string) error {
 	switch streamType {
 	case "LIST":
 		handleList(conn)
+
+	case "STOR":
+		handleFileTransfer(conn, c.args[0])
 
 	// need to add more cases
 
@@ -200,7 +208,7 @@ func handleList(conn net.Conn) error {
 	return nil
 }
 
-func handleFileTransfer(conn net.Conn) error {
+func handleFileTransfer(conn net.Conn, path string) error {
 	defer conn.Close()
 
 	buf := make([]byte, 0, 4096) // file container
@@ -228,7 +236,7 @@ func handleFileTransfer(conn net.Conn) error {
 
 	fmt.Printf("Total bytes received: %d. Writing file.\n", total)
 
-	if err := os.WriteFile("newfile.png", buf[:total], WRITE_MODE); err != nil {
+	if err := os.WriteFile(path, buf[:total], WRITE_MODE); err != nil {
 		return err
 	}
 
