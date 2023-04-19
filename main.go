@@ -199,6 +199,8 @@ func handleList(conn net.Conn) error {
 
 	w := tabwriter.NewWriter(buf, 1, 1, 4, ' ', 0)
 
+	total := 0
+
 	for _, file := range files {
 		info, err := file.Info()
 
@@ -209,12 +211,19 @@ func handleList(conn net.Conn) error {
 
 		data := fmt.Sprintf("%v\t%s\t %d\t %v\n", info.Mode(), file.Name(), info.Size(), file.IsDir())
 
-		w.Write([]byte(data))
+		n, err := w.Write([]byte(data))
+
+		if err != nil {
+			fmt.Printf("Error writing to client: %s\n", err)
+			return err
+		}
+
+		total += n
 	}
 
 	w.Flush()
 
-	conn.Write(buf.Bytes())
+	conn.Write(buf.Bytes()[:total])
 
 	return nil
 }
