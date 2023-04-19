@@ -84,7 +84,9 @@ func handleConnection(conn net.Conn) {
 
 		println(call.c)
 
-		handleCall(call, conn, dataStream, port)
+		if handleCall(call, conn, dataStream, port) {
+			break
+		}
 	}
 }
 
@@ -102,16 +104,14 @@ func parseCall(cmd string) (*call, error) {
 	return &call{c: c, args: args}, nil
 }
 
-func handleCall(c *call, conn net.Conn, dataStream net.Listener, port int) {
+func handleCall(c *call, conn net.Conn, dataStream net.Listener, port int) bool {
 	switch c.c {
 	case "USER":
 		data := fmt.Sprintf("331 User '%s' OK. Password required\n", c.args[0])
 		conn.Write([]byte(data))
 
 	case "LIST":
-		conn.Write([]byte("150 Opening ASCII mode data connection for file list.\n"))
-		handleDataStream(c, dataStream, "LIST")
-		conn.Write([]byte("226 Transfer complete.\n"))
+		handleDataStream(conn, c, dataStream, "LIST")
 
 	case "TYPE":
 		conn.Write([]byte("200 Type set to I.\n"))
@@ -120,9 +120,7 @@ func handleCall(c *call, conn net.Conn, dataStream net.Listener, port int) {
 		conn.Write([]byte("230 OK. Current restricted directory is /\n"))
 
 	case "STOR":
-		conn.Write([]byte("125 Transfer starting\n"))
-		handleDataStream(c, dataStream, "STOR")
-		conn.Write([]byte("226 Transfer complete.\n"))
+		handleDataStream(conn, c, dataStream, "STOR")
 
 	case "PASV":
 		p, k := calculatePort(port)
@@ -133,12 +131,15 @@ func handleCall(c *call, conn net.Conn, dataStream net.Listener, port int) {
 		conn.Write([]byte("150 Accepted data connection\n"))
 
 	case "QUIT":
-		conn.Close()
+		return true
 
 	default:
 		data := fmt.Sprintf("502 Command not implemented (%s)\n", c.c)
 		conn.Write([]byte(data))
+		return true
 	}
+
+	return false
 }
 
 func calculatePort(desiredPort int) (byte, byte) {
@@ -147,7 +148,7 @@ func calculatePort(desiredPort int) (byte, byte) {
 	return byte(p), byte(k)
 }
 
-func handleDataStream(c *call, dataStream net.Listener, streamType string) error {
+func handleDataStream(controlConn net.Conn, c *call, dataStream net.Listener, streamType string) error {
 	conn, err := dataStream.Accept()
 
 	if err != nil {
@@ -159,9 +160,11 @@ func handleDataStream(c *call, dataStream net.Listener, streamType string) error
 
 	switch streamType {
 	case "LIST":
+		controlConn.Write([]byte("150 Opening ASCII mode data connection for file list.\n"))
 		handleList(conn)
 
 	case "STOR":
+		controlConn.Write([]byte("125 Transfer starting\n"))
 		handleFileTransfer(conn, c.args[0])
 
 	// need to add more cases
@@ -170,6 +173,8 @@ func handleDataStream(c *call, dataStream net.Listener, streamType string) error
 		conn.Write([]byte("500 Unrecognized.\n"))
 		return fmt.Errorf("unrecognized comman was sent to the server")
 	}
+
+	controlConn.Write([]byte("226 Transfer complete.\n"))
 
 	return nil
 }
